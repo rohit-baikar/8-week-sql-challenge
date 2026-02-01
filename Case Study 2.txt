@@ -1,0 +1,587 @@
+======================================== A. Pizza  ======================================================
+-- 1. How many pizzas were ordered?
+SELECT
+	COUNT(order_id) AS Total_Orders
+FROM customer_orders;
+
+-- 2. How many unique customer orders were made?
+SELECT
+	COUNT(DISTINCT order_id) AS Unique_orders
+FROM customer_orders;
+
+-- 3. How many successful orders were delivered by each runner?
+SELECT 
+	runner_id,
+	COUNT(order_id) AS delivered_orders
+FROM runner_orders
+WHERE pickup_time <> 'null'
+GROUP BY runner_id;
+
+-- 4. How many of each type of pizza was delivered?
+SELECT
+	p.pizza_name,
+    COUNT(c.pizza_id) AS total_delivered
+FROM runner_orders r INNER JOIN customer_orders c
+ON r.order_id = c.order_id
+INNER JOIN pizza_names p ON c.pizza_id = p.pizza_id
+WHERE pickup_time <> 'null'
+GROUP BY p.pizza_name;
+
+-- 5. How many Vegetarian and Meatlovers were ordered by each customer?
+SELECT
+	c.customer_id,
+    p.pizza_name,
+    COUNT(c.pizza_id) AS pizza_ordered
+FROM customer_orders c
+INNER JOIN pizza_names p ON c.pizza_id = p.pizza_id
+GROUP BY pizza_name, c.customer_id
+ORDER BY c.customer_id;
+
+-- 6. What was the maximum number of pizzas delivered in a single order?
+SELECT
+	c.order_id,
+    COUNT(c.pizza_id) AS pizzas_orderd
+FROM customer_orders c INNER JOIN runner_orders r 
+ON c.order_id = r.order_id
+WHERE r.pickup_time <> 'null'
+GROUP BY c.order_id
+ORDER BY COUNT(c.pizza_id) DESC
+LIMIT 1;
+
+-- 7. For each customer, how many delivered pizzas had at least 1 change and how many had no changes?
+SELECT
+    c.customer_id,
+    SUM(
+        CASE
+            WHEN (
+                (exclusions IS NOT NULL 
+                 AND exclusions <> 'null' 
+                 AND LENGTH(exclusions) > 0)
+                OR
+                (extras IS NOT NULL 
+                 AND extras <> 'null' 
+                 AND LENGTH(extras) > 0)
+            )
+            THEN 1
+            ELSE 0
+        END
+    ) AS Changes,
+    SUM(
+        CASE
+            WHEN (
+                (exclusions IS NOT NULL 
+                 AND exclusions <> 'null' 
+                 AND LENGTH(exclusions) > 0)
+                OR
+                (extras IS NOT NULL 
+                 AND extras <> 'null' 
+                 AND LENGTH(extras) > 0)
+            )
+            THEN 0
+            ELSE 1
+        END
+    ) AS No_Changes
+FROM customer_orders c
+INNER JOIN runner_orders r
+    ON c.order_id = r.order_id
+WHERE pickup_time <> 'null'
+GROUP BY c.customer_id;
+
+-- 8. How many pizzas were delivered that had both exclusions and extras?
+SELECT
+    COUNT(*) AS pizzas_with_exclusions_and_extras
+FROM customer_orders c
+INNER JOIN runner_orders r
+    ON c.order_id = r.order_id
+WHERE pickup_time <> 'null'
+  AND exclusions IS NOT NULL
+  AND exclusions <> 'null'
+  AND LENGTH(exclusions) > 0
+  AND extras IS NOT NULL
+  AND extras <> 'null'
+  AND LENGTH(extras) > 0;
+
+-- 9. What was the total volume of pizzas ordered for each hour of the day?
+SELECT
+    EXTRACT(HOUR FROM order_time) AS hour_of_day,
+    COUNT(*) AS total_pizzas
+FROM customer_orders
+GROUP BY hour_of_day
+ORDER BY hour_of_day;
+
+-- 10. What was the volume of orders for each day of the week?
+SELECT
+	EXTRACT(DOW FROM order_time) AS day_of_week,
+    COUNT(DISTINCT order_id) AS Orders
+FROM customer_orders
+GROUP BY day_of_week;
+
+============================================= B. Runner and Customer Experience ===========================================
+
+-- 1. How many runners signed up for each 1 week period? (i.e. week starts 2021-01-01)
+SELECT
+    DATE '2021-01-01'
+      + ((registration_date - DATE '2021-01-01') / 7) * 7
+      AS week_start,
+    COUNT(*) AS runners_signed_up
+FROM runners
+GROUP BY week_start
+ORDER BY week_start;
+
+-- 2. What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?
+SELECT
+    r.runner_id,
+    AVG(
+        EXTRACT(EPOCH FROM (pickup_time::timestamp - order_time)) / 60
+    ) AS avg_minutes
+FROM customer_orders c
+JOIN runner_orders r
+    ON c.order_id = r.order_id
+WHERE pickup_time <> 'null'
+GROUP BY r.runner_id;
+
+-- 3.Is there any relationship between the number of pizzas and how long the order takes to prepare?
+WITH cte AS (
+    SELECT
+        c.order_id,
+        COUNT(c.pizza_id) AS number_of_pizzas,
+        EXTRACT(EPOCH FROM (r.pickup_time::timestamp - c.order_time)) / 60 AS prep_time_minutes
+    FROM customer_orders c
+    JOIN runner_orders r
+    ON c.order_id = r.order_id
+    WHERE r.pickup_time <> 'null'
+    GROUP BY c.order_id, c.order_time, r.pickup_time
+)
+
+SELECT
+    number_of_pizzas,
+    ROUND(AVG(prep_time_minutes), 2) AS avg_prep_time_minutes
+FROM cte
+GROUP BY number_of_pizzas
+ORDER BY number_of_pizzas;
+
+-- 4.What was the average distance travelled for each customer?
+SELECT
+	c.customer_id,
+    ROUND(
+    	AVG(CAST(REPLACE(distance, 'km', '') AS Numeric))
+      , 2)AS New_Distance
+FROM runner_orders r
+INNER JOIN customer_orders c
+  ON r.order_id = c.order_id
+WHERE r.distance <> 'null'
+GROUP BY c.customer_id
+ORDER BY c.customer_id;
+
+-- 5.What was the difference between the longest and shortest delivery times for all orders?
+SELECT
+    MAX(
+        CAST(
+            REPLACE(
+                REPLACE(
+                    REPLACE(duration, 'minutes', ''),
+                'mins', ''),
+            'minute', ''
+            ) AS NUMERIC
+        )
+    )
+    -
+    MIN(
+        CAST(
+            REPLACE(
+                REPLACE(
+                    REPLACE(duration, 'minutes', ''),
+                'mins', ''),
+            'minute', ''
+            ) AS NUMERIC
+        )
+    ) AS diff_btwn_delivery_time
+FROM runner_orders
+WHERE duration <> 'null';
+
+-- 6.What was the average speed for each runner for each delivery and do you notice any trend for these values?
+SELECT
+    runner_id,
+    order_id,
+    ROUND(
+        CAST(REPLACE(distance, 'km', '') AS NUMERIC)
+        /
+        CAST(
+            REPLACE(
+                REPLACE(
+                    REPLACE(duration, 'minutes', ''),
+                'mins', ''),
+            'minute', ''
+            ) AS NUMERIC
+        ),
+        2
+    ) AS avg_speed_km_per_min
+FROM runner_orders
+WHERE pickup_time <> 'null'
+ORDER BY runner_id, order_id;
+
+-- 7.What is the successful delivery percentage for each runner?
+SELECT
+    runner_id,
+    ROUND(
+      100.0 * 
+      COUNT(CASE WHEN pickup_time <> 'null' THEN 1 END) / COUNT(order_id)
+    ,2) AS successful_delivery_percentage
+FROM runner_orders
+GROUP BY runner_id;
+
+============================================= C. Ingredient Optimisation ===========================================
+-- 1.What are the standard ingredients for each pizza?
+SELECT
+    n.pizza_name,
+    t.topping_name
+FROM pizza_recipes r
+JOIN pizza_names n
+    ON r.pizza_id = n.pizza_id
+JOIN LATERAL (
+    SELECT CAST(unnest(string_to_array(r.toppings, ', ')) AS INT) AS topping_id
+) x ON TRUE
+JOIN pizza_toppings t
+    ON t.topping_id = x.topping_id
+ORDER BY n.pizza_name, t.topping_name;
+
+-- 2.What was the most commonly added extra?
+SELECT
+    pt.topping_name,
+    COUNT(*) AS added_extra_count
+FROM customer_orders c
+JOIN LATERAL (
+    SELECT CAST(unnest(string_to_array(c.extras, ', ')) AS INT) AS topping_id
+) x ON TRUE
+JOIN pizza_toppings pt
+    ON pt.topping_id = x.topping_id
+WHERE c.extras IS NOT NULL
+  AND c.extras <> 'null'
+GROUP BY pt.topping_name
+ORDER BY added_extra_count DESC
+LIMIT 1;
+
+-- 3.What was the most common exclusion?
+SELECT
+	pt.topping_name,
+    COUNT(*) AS added_exclusion_count
+FROM customer_orders c
+JOIN LATERAL (
+    SELECT CAST(unnest(string_to_array(c.exclusions, ', ')) AS INT) AS topping_id
+) x ON TRUE
+JOIN pizza_toppings pt
+    ON pt.topping_id = x.topping_id
+WHERE c.exclusions IS NOT NULL
+  AND c.exclusions <> 'null'
+GROUP BY pt.topping_name
+ORDER BY added_exclusion_count DESC
+LIMIT 1;
+
+-- 4.Generate an order item for each record in the customers_orders table in the format of one of the following:
+-- Meat Lovers
+-- Meat Lovers - Exclude Beef
+-- Meat Lovers - Extra Bacon
+-- Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers
+WITH extras AS (
+    SELECT
+        co.order_id,
+        co.pizza_id,
+        STRING_AGG(DISTINCT pt.topping_name, ', ') AS extra_toppings
+    FROM customer_orders co
+    JOIN LATERAL (
+        SELECT CAST(unnest(string_to_array(co.extras, ', ')) AS INT) AS topping_id
+    ) x ON TRUE
+    JOIN pizza_toppings pt
+        ON pt.topping_id = x.topping_id
+    WHERE co.extras IS NOT NULL
+      AND co.extras <> 'null'
+    GROUP BY co.order_id, co.pizza_id
+),
+excluded AS (
+    SELECT
+        co.order_id,
+        co.pizza_id,
+        STRING_AGG(DISTINCT pt.topping_name, ', ') AS excluded_toppings
+    FROM customer_orders co
+    JOIN LATERAL (
+        SELECT CAST(unnest(string_to_array(co.exclusions, ', ')) AS INT) AS topping_id
+    ) x ON TRUE
+    JOIN pizza_toppings pt
+        ON pt.topping_id = x.topping_id
+    WHERE co.exclusions IS NOT NULL
+      AND co.exclusions <> 'null'
+    GROUP BY co.order_id, co.pizza_id
+)
+SELECT
+    co.order_id,
+    CONCAT(
+        pn.pizza_name,
+        CASE
+            WHEN ex.excluded_toppings IS NOT NULL
+            THEN ' - Exclude ' || ex.excluded_toppings
+            ELSE ''
+        END,
+        CASE
+            WHEN e.extra_toppings IS NOT NULL
+            THEN ' - Extra ' || e.extra_toppings
+            ELSE ''
+        END
+    ) AS order_item
+FROM customer_orders co
+JOIN pizza_names pn
+    ON co.pizza_id = pn.pizza_id
+LEFT JOIN extras e
+    ON co.order_id = e.order_id
+   AND co.pizza_id = e.pizza_id
+LEFT JOIN excluded ex
+    ON co.order_id = ex.order_id
+   AND co.pizza_id = ex.pizza_id
+ORDER BY co.order_id;
+
+-- 5.Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+-- For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"
+
+WITH base_toppings AS (
+    SELECT
+        co.order_id,
+        co.pizza_id,
+        CAST(unnest(string_to_array(pr.toppings, ', ')) AS INT) AS topping_id
+    FROM customer_orders co
+    JOIN pizza_recipes pr
+        ON co.pizza_id = pr.pizza_id
+),
+
+excluded AS (
+    SELECT
+        order_id,
+        CAST(unnest(string_to_array(exclusions, ', ')) AS INT) AS topping_id
+    FROM customer_orders
+    WHERE exclusions IS NOT NULL
+      AND exclusions <> 'null'
+),
+
+extras AS (
+    SELECT
+        order_id,
+        CAST(unnest(string_to_array(extras, ', ')) AS INT) AS topping_id
+    FROM customer_orders
+    WHERE extras IS NOT NULL
+      AND extras <> 'null'
+),
+
+final_toppings AS (
+    -- base toppings minus exclusions
+    SELECT
+        b.order_id,
+        b.pizza_id,
+        b.topping_id
+    FROM base_toppings b
+    LEFT JOIN excluded e
+        ON b.order_id = e.order_id
+       AND b.topping_id = e.topping_id
+    WHERE e.topping_id IS NULL
+
+    UNION ALL
+
+    -- add extras
+    SELECT
+        order_id,
+        NULL AS pizza_id,
+        topping_id
+    FROM extras
+),
+
+topping_counts AS (
+    SELECT
+        order_id,
+        topping_id,
+        COUNT(*) AS topping_count
+    FROM final_toppings
+    GROUP BY order_id, topping_id
+)
+
+SELECT
+    co.order_id,
+    pn.pizza_name || ': ' ||
+    STRING_AGG(
+        CASE
+            WHEN tc.topping_count > 1
+                THEN tc.topping_count || 'x' || pt.topping_name
+            ELSE pt.topping_name
+        END,
+        ', ' ORDER BY pt.topping_name
+    ) AS ingredient_list
+FROM topping_counts tc
+JOIN pizza_toppings pt
+    ON tc.topping_id = pt.topping_id
+JOIN customer_orders co
+    ON tc.order_id = co.order_id
+JOIN pizza_names pn
+    ON co.pizza_id = pn.pizza_id
+GROUP BY
+    co.order_id,
+    pn.pizza_name
+ORDER BY
+    co.order_id;
+
+-- 6.What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+WITH base_toppings AS (
+    SELECT
+        co.order_id,
+        CAST(unnest(string_to_array(pr.toppings, ', ')) AS INT) AS topping_id
+    FROM customer_orders co
+    JOIN pizza_recipes pr
+        ON co.pizza_id = pr.pizza_id
+),
+
+excluded AS (
+    SELECT
+        order_id,
+        CAST(unnest(string_to_array(exclusions, ', ')) AS INT) AS topping_id
+    FROM customer_orders
+    WHERE exclusions IS NOT NULL
+      AND exclusions <> 'null'
+),
+
+extras AS (
+    SELECT
+        order_id,
+        CAST(unnest(string_to_array(extras, ', ')) AS INT) AS topping_id
+    FROM customer_orders
+    WHERE extras IS NOT NULL
+      AND extras <> 'null'
+),
+
+final_toppings AS (
+    SELECT
+        b.order_id,
+        b.topping_id
+    FROM base_toppings b
+    LEFT JOIN excluded e
+        ON b.order_id = e.order_id
+       AND b.topping_id = e.topping_id
+    WHERE e.topping_id IS NULL
+
+    UNION ALL
+
+    SELECT
+        order_id,
+        topping_id
+    FROM extras
+)
+
+SELECT
+    pt.topping_name,
+    COUNT(*) AS total_quantity
+FROM final_toppings ft
+JOIN runner_orders ro
+    ON ft.order_id = ro.order_id
+JOIN pizza_toppings pt
+    ON ft.topping_id = pt.topping_id
+WHERE ro.cancellation IS NULL
+GROUP BY pt.topping_name
+ORDER BY total_quantity DESC;
+
+
+============================================= D. Pricing and Ratings ===========================================
+
+-- 1.If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+
+SELECT
+    SUM(CASE 
+    	WHEN pn.pizza_name = 'Meatlovers' THEN 12
+        WHEN pn.pizza_name = 'Vegetarian' THEN 10
+    END) AS Total_Revenue
+FROM runner_orders rn
+INNER JOIN customer_orders co
+ON rn.order_id = co.order_id
+INNER JOIN pizza_names pn
+ON pn.pizza_id = co.pizza_id
+WHERE rn.pickup_time <> 'null';
+
+-- 2.What if there was an additional $1 charge for any pizza extras?
+-- Add cheese is $1 extra
+SELECT
+     SUM(
+        /* Base pizza price */
+        CASE 
+            WHEN pn.pizza_name = 'Meatlovers' THEN 12
+            WHEN pn.pizza_name = 'Vegetarian' THEN 10
+        END
+        /* + $1 if any extras */
+        + CASE 
+            WHEN co.extras IS NOT NULL 
+                 AND co.extras <> 'null' 
+                 AND co.extras <> '' 
+            THEN 1
+            ELSE 0
+          END
+        /* + $1 if cheese (4) is in extras */
+        + CASE
+            WHEN co.extras LIKE '%4%' THEN 1
+            ELSE 0
+          END
+    ) AS total_revenue
+FROM runner_orders rn
+INNER JOIN customer_orders co
+ON rn.order_id = co.order_id
+INNER JOIN pizza_names pn
+ON pn.pizza_id = co.pizza_id
+WHERE rn.pickup_time <> 'null';
+
+-- 3.The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, 
+-- how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings 
+-- for each successful customer order between 1 to 5.
+-- First Create a New Table for Rating 
+CREATE TABLE customer_ratings (
+    rating_id SERIAL PRIMARY KEY,
+    order_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    runner_id INT NOT NULL,
+    rating INT CHECK (rating BETWEEN 1 AND 5),
+    rating_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Using CTE add the data in new created table from old all tables
+WITH delivery_metrics AS (
+    SELECT
+        co.order_id,
+        co.customer_id,
+        ro.runner_id,
+        CAST(REPLACE(ro.distance, 'km', '') AS NUMERIC) AS distance_km,
+        CAST(
+            REPLACE(
+                REPLACE(
+                    REPLACE(ro.duration, 'minutes', ''),
+                'mins', ''),
+            'minute', '')
+        AS NUMERIC) AS duration_min
+    FROM customer_orders co
+    JOIN runner_orders ro
+        ON co.order_id = ro.order_id
+    WHERE ro.pickup_time IS NOT NULL
+    AND ro.pickup_time <> 'null'
+)
+
+-- Add data and rating into new created table from CTE table 
+INSERT INTO customer_ratings (order_id, customer_id, runner_id, rating)
+SELECT
+    order_id,
+    customer_id,
+    runner_id,
+    CASE
+        WHEN (distance_km / duration_min) >= 1.0 THEN 5
+        WHEN (distance_km / duration_min) >= 0.8 THEN 4
+        WHEN (distance_km / duration_min) >= 0.6 THEN 3
+        WHEN (distance_km / duration_min) >= 0.4 THEN 2
+        ELSE 1
+    END AS rating
+FROM delivery_metrics;
+
+-- Calculate the Rating of each runner
+SELECT
+	runner_id,
+    ROUND(AVG(Rating),0) AS avg_runner_rating
+FROM customer_ratings
+GROUP BY runner_id
+ORDER BY avg_runner_rating DESC;
