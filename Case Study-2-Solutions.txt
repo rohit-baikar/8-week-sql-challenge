@@ -1,4 +1,4 @@
-======================================== A. Pizza  ======================================================
+======================================== A. Pizza Metrics ======================================================
 -- 1. How many pizzas were ordered?
 SELECT
 	COUNT(order_id) AS Total_Orders
@@ -585,4 +585,5 @@ SELECT
 FROM customer_ratings
 GROUP BY runner_id
 ORDER BY avg_runner_rating DESC;
+
 
