@@ -585,3 +585,4 @@ SELECT
 FROM customer_ratings
 GROUP BY runner_id
 ORDER BY avg_runner_rating DESC;
+
